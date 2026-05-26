@@ -6,6 +6,7 @@ namespace Hexis\SuluMediaCdnBundle\EventSubscriber;
 
 use Hexis\SuluMediaCdnBundle\Generator\VariationGenerator;
 use Hexis\SuluMediaCdnBundle\Message\GenerateVariationsMessage;
+use Hexis\SuluMediaCdnBundle\Message\MigrateOriginalMessage;
 use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
 use Sulu\Bundle\MediaBundle\Domain\Event\MediaCreatedEvent;
@@ -36,6 +37,7 @@ final class MediaUploadSubscriber implements EventSubscriberInterface
         private readonly ?string $syncAdminFormat,
         private readonly array $asyncFormats,
         private readonly array $excludedFormats,
+        private readonly bool $asyncOriginalsToTarget = false,
         ?LoggerInterface $logger = null,
     ) {
         $this->logger = $logger ?? new NullLogger();
@@ -85,6 +87,22 @@ final class MediaUploadSubscriber implements EventSubscriberInterface
 
     private function handle(MediaInterface $media, FileVersion $fileVersion): void
     {
+        // Mirror the original to the target flysystem for ALL file types
+        // (images, PDFs, videos, ...). Independent of the image-variation path.
+        if ($this->asyncOriginalsToTarget) {
+            try {
+                $this->messageBus->dispatch(new MigrateOriginalMessage(
+                    (int) $media->getId(),
+                    $fileVersion->getVersion(),
+                ));
+            } catch (MessengerException $e) {
+                $this->logger->error('Failed to dispatch MigrateOriginalMessage', [
+                    'exception' => $e,
+                    'mediaId' => $media->getId(),
+                ]);
+            }
+        }
+
         if (!$this->isImage($fileVersion)) {
             return;
         }

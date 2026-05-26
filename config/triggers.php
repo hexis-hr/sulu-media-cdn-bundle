@@ -40,6 +40,7 @@ return static function (ContainerConfigurator $container): void {
             param('hexis_sulu_media_cdn.triggers.sync_admin_format'),
             param('hexis_sulu_media_cdn.triggers.async_formats'),
             param('hexis_sulu_media_cdn.triggers.excluded_formats'),
+            param('hexis_sulu_media_cdn.triggers.async_originals_to_target'),
             service('logger')->nullOnInvalid(),
         ])
         ->tag('kernel.event_subscriber');

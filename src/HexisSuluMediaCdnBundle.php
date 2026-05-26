@@ -80,6 +80,10 @@ final class HexisSuluMediaCdnBundle extends AbstractBundle
                             ->scalarPrototype()->end()
                             ->defaultValue([])
                         ->end()
+                        ->booleanNode('async_originals_to_target')
+                            ->defaultTrue()
+                            ->info('Dispatch MigrateOriginalMessage on upload to mirror the original from migration.source_flysystem_service to migration.target_flysystem_service. Sulu keeps writing originals to its configured storage; the mirror is additive.')
+                        ->end()
                     ->end()
                 ->end()
                 ->arrayNode('queue')
@@ -94,6 +98,15 @@ final class HexisSuluMediaCdnBundle extends AbstractBundle
                     ->children()
                         ->booleanNode('enabled')->defaultTrue()->end()
                         ->integerNode('default_batch_size')->defaultValue(100)->end()
+                    ->end()
+                ->end()
+                ->arrayNode('migration')
+                    ->addDefaultsIfNotSet()
+                    ->info('hexis:media:migrate-originals - copy media originals between two flysystem storages.')
+                    ->children()
+                        ->booleanNode('enabled')->defaultTrue()->end()
+                        ->scalarNode('source_flysystem_service')->defaultValue('default.storage')->end()
+                        ->scalarNode('target_flysystem_service')->defaultValue('aws.storage')->end()
                     ->end()
                 ->end()
             ->end();
@@ -123,6 +136,10 @@ final class HexisSuluMediaCdnBundle extends AbstractBundle
         $builder->setParameter('hexis_sulu_media_cdn.triggers.sync_admin_format', $config['triggers']['sync_admin_format']);
         $builder->setParameter('hexis_sulu_media_cdn.triggers.async_formats', $config['triggers']['async_formats']);
         $builder->setParameter('hexis_sulu_media_cdn.triggers.excluded_formats', $config['triggers']['excluded_formats']);
+        $builder->setParameter('hexis_sulu_media_cdn.triggers.async_originals_to_target', $config['triggers']['async_originals_to_target']);
+
+        $builder->setParameter('hexis_sulu_media_cdn.migration.source_flysystem_service', $config['migration']['source_flysystem_service']);
+        $builder->setParameter('hexis_sulu_media_cdn.migration.target_flysystem_service', $config['migration']['target_flysystem_service']);
 
         $builder->setParameter('hexis_sulu_media_cdn.queue.transport', $config['queue']['transport']);
         $builder->setParameter('hexis_sulu_media_cdn.queue.deduplicate', $config['queue']['deduplicate']);
@@ -145,6 +162,46 @@ final class HexisSuluMediaCdnBundle extends AbstractBundle
         if ($config['command']['enabled']) {
             $container->import('../config/command.php');
         }
+
+        if ($config['migration']['enabled']) {
+            $this->registerMigrationCommand($config, $builder);
+        }
+
+        if ($config['triggers']['async_originals_to_target']) {
+            $this->registerOriginalMirrorHandler($config, $builder);
+        }
+    }
+
+    /**
+     * @param array<string, mixed> $config
+     */
+    private function registerMigrationCommand(array $config, ContainerBuilder $builder): void
+    {
+        $definition = new Definition(\Hexis\SuluMediaCdnBundle\Command\MigrateOriginalsCommand::class, [
+            new Reference('sulu.repository.media'),
+            new Reference($config['migration']['source_flysystem_service']),
+            new Reference($config['migration']['target_flysystem_service']),
+            (int) $config['command']['default_batch_size'],
+        ]);
+        $definition->addTag('console.command');
+
+        $builder->setDefinition(\Hexis\SuluMediaCdnBundle\Command\MigrateOriginalsCommand::class, $definition);
+    }
+
+    /**
+     * @param array<string, mixed> $config
+     */
+    private function registerOriginalMirrorHandler(array $config, ContainerBuilder $builder): void
+    {
+        $definition = new Definition(\Hexis\SuluMediaCdnBundle\MessageHandler\MigrateOriginalHandler::class, [
+            new Reference('sulu.repository.media'),
+            new Reference($config['migration']['source_flysystem_service']),
+            new Reference($config['migration']['target_flysystem_service']),
+            new Reference('logger', ContainerBuilder::NULL_ON_INVALID_REFERENCE),
+        ]);
+        $definition->addTag('messenger.message_handler');
+
+        $builder->setDefinition(\Hexis\SuluMediaCdnBundle\MessageHandler\MigrateOriginalHandler::class, $definition);
     }
 
     /**
