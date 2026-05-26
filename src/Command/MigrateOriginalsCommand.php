@@ -183,13 +183,15 @@ final class MigrateOriginalsCommand extends Command
             return null;
         }
 
-        $directory = $opts['directory'] ?? null;
+        // Sulu's FlysystemStorage stores the path under `segment` + `fileName`.
+        // Some legacy data may carry `directory` instead.
+        $segment = $opts['segment'] ?? $opts['directory'] ?? null;
         $fileName = $opts['fileName'] ?? null;
-        if (null === $directory || null === $fileName) {
+        if (null === $segment || null === $fileName) {
             return null;
         }
 
-        return $directory . '/' . $fileName;
+        return $segment . '/' . $fileName;
     }
 
     /**
